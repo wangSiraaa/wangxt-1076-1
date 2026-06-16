@@ -4,6 +4,14 @@ export type PatientPriority = 'normal' | 'emergency';
 
 export type DisinfectionItem = 'surface' | 'equipment' | 'air' | 'waterline' | 'tray';
 
+export type BatchStatus = 'pending' | 'qualified' | 'unqualified' | 'expired';
+
+export type TimelineEventType = 'patient-enter' | 'patient-exit' | 'cleaning-start' | 'cleaning-complete' | 
+                                'maintenance-start' | 'maintenance-end' | 'pause' | 'resume' |
+                                'package-bound' | 'package-unbound' | 'batch-qualified' | 'batch-unqualified';
+
+export type EmergencyRequestStatus = 'pending' | 'approved' | 'rejected' | 'completed';
+
 export interface Patient {
   id: string;
   name: string;
@@ -69,10 +77,14 @@ export interface DoctorRequest {
 export interface TimelineEvent {
   id: string;
   roomId: string;
-  eventType: 'patient-enter' | 'patient-exit' | 'cleaning-start' | 'cleaning-complete' | 'maintenance-start' | 'maintenance-end' | 'pause' | 'resume';
+  eventType: TimelineEventType;
   timestamp: Date;
   description: string;
   operatorName: string;
+  batchId?: string;
+  batchNumber?: string;
+  packageId?: string;
+  packageName?: string;
 }
 
 export interface Room {
@@ -113,6 +125,81 @@ export interface CleaningTimeoutAlert {
   acknowledged: boolean;
 }
 
+export interface SterilizationBatch {
+  id: string;
+  batchNumber: string;
+  sterilizationDate: Date;
+  expirationDate: Date;
+  status: BatchStatus;
+  sterilizerId: string;
+  sterilizerName: string;
+  operatorName: string;
+  createdAt: Date;
+  notes?: string;
+  packageIds: string[];
+  unqualifiedReason?: string;
+  unqualifiedAt?: Date;
+}
+
+export interface RoomBinding {
+  id: string;
+  roomId: string;
+  roomName: string;
+  packageId: string;
+  packageName: string;
+  batchId: string;
+  batchNumber: string;
+  boundAt: Date;
+  operatorName: string;
+  isActive: boolean;
+  unboundAt?: Date;
+}
+
+export interface BatchTraceResult {
+  id: string;
+  batchId: string;
+  batchNumber: string;
+  tracedAt: Date;
+  operatorName: string;
+  affectedRooms: {
+    roomId: string;
+    roomName: string;
+    status: RoomStatus;
+    currentPatientId?: string;
+    currentPatientName?: string;
+    bindingId: string;
+  }[];
+  affectedPatients: {
+    patientId: string;
+    patientName: string;
+    roomId: string;
+    roomName: string;
+    status: 'in-treatment' | 'waiting';
+  }[];
+  resolved: boolean;
+  resolvedAt?: Date;
+}
+
+export interface EmergencyInsertRequest {
+  id: string;
+  patientName: string;
+  patientPriority: 'emergency';
+  doctorId: string;
+  doctorName: string;
+  equipmentRequirements: string[];
+  requestedAt: Date;
+  status: EmergencyRequestStatus;
+  matchedRoomId?: string;
+  matchedRoomName?: string;
+  rejectionReason?: string;
+}
+
+export interface EquipmentRequirement {
+  id: string;
+  name: string;
+  category: string;
+}
+
 export interface ClinicStore {
   rooms: Room[];
   patients: Patient[];
@@ -124,6 +211,12 @@ export interface ClinicStore {
   pauseAlerts: PauseAlert[];
   timeoutAlerts: CleaningTimeoutAlert[];
   currentTime: Date;
+  sterilizationBatches: SterilizationBatch[];
+  roomBindings: RoomBinding[];
+  batchTraces: BatchTraceResult[];
+  emergencyRequests: EmergencyInsertRequest[];
+  equipmentRequirements: EquipmentRequirement[];
+  autoPauseRooms: Record<string, string>;
   
   setCurrentTime: (time: Date) => void;
   
@@ -152,4 +245,29 @@ export interface ClinicStore {
   getAvailableRooms: () => Room[];
   getQueuePatients: () => Patient[];
   getRoomTimeline: (roomId: string) => TimelineEvent[];
+  
+  addSterilizationBatch: (batch: Omit<SterilizationBatch, 'id' | 'createdAt'>) => void;
+  markBatchQualified: (batchId: string, operatorName: string) => void;
+  markBatchUnqualified: (batchId: string, reason: string, operatorName: string) => BatchTraceResult;
+  
+  bindPackageToRoom: (roomId: string, packageId: string, batchId: string, operatorName: string) => { success: boolean; message: string };
+  unbindPackageFromRoom: (bindingId: string, operatorName: string) => void;
+  getActiveBindingsByRoom: (roomId: string) => RoomBinding[];
+  
+  traceBatch: (batchId: string, operatorName: string) => BatchTraceResult;
+  resolveBatchTrace: (traceId: string, operatorName: string) => void;
+  
+  submitEmergencyRequest: (request: Omit<EmergencyInsertRequest, 'id' | 'requestedAt' | 'status'>) => { success: boolean; message: string; matchedRooms?: Room[] };
+  processEmergencyRequest: (requestId: string, approved: boolean, roomId?: string, reason?: string) => void;
+  
+  checkRoomSterilizationStatus: (roomId: string) => { isQualified: boolean; reason?: string; batchId?: string };
+  checkRoomEquipmentMatch: (roomId: string, requirements: string[]) => { isMatch: boolean; missingEquipment?: string[] };
+  
+  getQualifiedBatches: () => SterilizationBatch[];
+  getAvailablePackagesWithBatch: () => (InstrumentPackage & { batch?: SterilizationBatch })[];
+  getRoomTimelineWithBatch: (roomId: string) => TimelineEvent[];
+  getAllTimeline: () => TimelineEvent[];
+  
+  markRoomForAutoPause: (roomId: string, reason: string) => void;
+  cancelPatientRoomAssignment: (patientId: string) => void;
 }
