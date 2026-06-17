@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Droplets, CheckSquare, Package, AlertTriangle, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Droplets, CheckSquare, Package, AlertTriangle, Clock, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { useClinicStore } from '@/store/clinicStore';
 import { cn } from '@/lib/utils';
-import type { DisinfectionItem, DisinfectionRecord } from '@/types';
+import type { DisinfectionItem, DisinfectionRecord, DisinfectionRecordStatus } from '@/types';
 
 const disinfectionItems: { value: DisinfectionItem; label: string }[] = [
   { value: 'surface', label: '物体表面消毒' },
@@ -30,6 +30,8 @@ export default function DisinfectionRecordComponent() {
     currentTime,
     startDisinfection,
     completeDisinfection,
+    startSecondaryTreatment,
+    completeSecondaryTreatment,
   } = useClinicStore();
 
   const [showForm, setShowForm] = useState(false);
@@ -43,9 +45,15 @@ export default function DisinfectionRecordComponent() {
 
   const cleaningRooms = rooms.filter(r => r.status === 'cleaning');
   const availablePackages = instrumentPackages.filter(p => p.status === 'available');
-  const inProgressRecords = disinfectionRecords.filter(r => r.status === 'in-progress');
+  const initialCleaningRecords = disinfectionRecords.filter(r => 
+    r.status === 'in-progress' && !r.secondaryTreatmentStartTime
+  );
+  const secondaryInProgressRecords = disinfectionRecords.filter(r => 
+    r.status === 'in-progress' && !!r.secondaryTreatmentStartTime
+  );
+  const awaitingSecondaryRecords = disinfectionRecords.filter(r => r.status === 'awaiting-secondary');
   const completedRecords = disinfectionRecords
-    .filter(r => r.status === 'completed')
+    .filter(r => r.status === 'completed' || r.status === 'secondary-completed')
     .sort((a, b) => (b.endTime?.getTime() || 0) - (a.endTime?.getTime() || 0))
     .slice(0, 5);
 
@@ -89,16 +97,18 @@ export default function DisinfectionRecordComponent() {
       <div className="p-4 border-b border-gray-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-lg bg-cyan-100 flex items-center justify-center">
-              <Droplets className="w-5 h-5 text-cyan-600" />
+              <div className="w-10 h-10 rounded-lg bg-cyan-100 flex items-center justify-center">
+                <Droplets className="w-5 h-5 text-cyan-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-800">清洁消毒记录</h3>
+                <p className="text-sm text-gray-500">
+                  消毒中 {initialCleaningRecords.length} 项
+                  {secondaryInProgressRecords.length > 0 && ` · 二次处理中 ${secondaryInProgressRecords.length} 项`}
+                  {awaitingSecondaryRecords.length > 0 && ` · 待二次处理 ${awaitingSecondaryRecords.length} 项`}
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-bold text-gray-800">清洁消毒记录</h3>
-              <p className="text-sm text-gray-500">
-                进行中 {inProgressRecords.length} 项
-              </p>
-            </div>
-          </div>
           <button
             onClick={() => setShowForm(!showForm)}
             className="flex items-center gap-1 px-3 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm font-medium transition-colors"
@@ -209,16 +219,56 @@ export default function DisinfectionRecordComponent() {
       )}
 
       <div className="divide-y divide-gray-100">
-        {inProgressRecords.length > 0 && (
+        {initialCleaningRecords.length > 0 && (
           <div className="p-4">
-            <h4 className="text-sm font-medium text-gray-500 mb-3">进行中</h4>
+            <h4 className="text-sm font-medium text-gray-500 mb-3">消毒进行中</h4>
             <div className="space-y-3">
-              {inProgressRecords.map(record => (
+              {initialCleaningRecords.map(record => (
                 <DisinfectionCard
                   key={record.id}
                   record={record}
-                  isInProgress
+                  status={record.status}
                   onComplete={() => completeDisinfection(record.id)}
+                  onStartSecondary={() => startSecondaryTreatment(record.id, '李护士')}
+                  onCompleteSecondary={() => completeSecondaryTreatment(record.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {secondaryInProgressRecords.length > 0 && (
+          <div className="p-4 bg-cyan-50/50">
+            <h4 className="text-sm font-medium text-cyan-700 mb-3 flex items-center gap-1">
+              <RefreshCw className="w-4 h-4" />
+              二次处理进行中
+            </h4>
+            <div className="space-y-3">
+              {secondaryInProgressRecords.map(record => (
+                <DisinfectionCard
+                  key={record.id}
+                  record={record}
+                  status={record.status}
+                  onCompleteSecondary={() => completeSecondaryTreatment(record.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {awaitingSecondaryRecords.length > 0 && (
+          <div className="p-4 bg-amber-50/50">
+            <h4 className="text-sm font-medium text-amber-700 mb-3 flex items-center gap-1">
+              <AlertTriangle className="w-4 h-4" />
+              待二次处理
+            </h4>
+            <div className="space-y-3">
+              {awaitingSecondaryRecords.map(record => (
+                <DisinfectionCard
+                  key={record.id}
+                  record={record}
+                  status={record.status}
+                  onStartSecondary={() => startSecondaryTreatment(record.id, '李护士')}
                 />
               ))}
             </div>
@@ -230,13 +280,13 @@ export default function DisinfectionRecordComponent() {
             <h4 className="text-sm font-medium text-gray-500 mb-3">最近完成</h4>
             <div className="space-y-3">
               {completedRecords.map(record => (
-                <DisinfectionCard key={record.id} record={record} />
+                <DisinfectionCard key={record.id} record={record} status={record.status} />
               ))}
             </div>
           </div>
         )}
 
-        {inProgressRecords.length === 0 && completedRecords.length === 0 && (
+        {initialCleaningRecords.length === 0 && secondaryInProgressRecords.length === 0 && awaitingSecondaryRecords.length === 0 && completedRecords.length === 0 && (
           <div className="p-8 text-center text-gray-500">
             <Droplets className="w-12 h-12 mx-auto mb-2 opacity-30" />
             <p>暂无消毒记录</p>
@@ -249,38 +299,86 @@ export default function DisinfectionRecordComponent() {
 
 function DisinfectionCard({
   record,
-  isInProgress,
+  status,
   onComplete,
+  onStartSecondary,
+  onCompleteSecondary,
 }: {
   record: DisinfectionRecord;
-  isInProgress?: boolean;
+  status: DisinfectionRecordStatus;
   onComplete?: () => void;
+  onStartSecondary?: () => void;
+  onCompleteSecondary?: () => void;
 }) {
   const { rooms, currentTime } = useClinicStore();
   const room = rooms.find(r => r.id === record.roomId);
   const duration = getDurationMinutes(record.startTime, record.endTime);
+  const secondaryDuration = record.secondaryTreatmentStartTime && record.secondaryTreatmentEndTime
+    ? getDurationMinutes(record.secondaryTreatmentStartTime, record.secondaryTreatmentEndTime)
+    : 0;
+
+  const isInProgress = status === 'in-progress';
+  const isAwaitingSecondary = status === 'awaiting-secondary';
+  const isCompleted = status === 'completed' || status === 'secondary-completed';
+  const isSecondaryCompleted = status === 'secondary-completed';
+  const isSecondaryInProgress = isInProgress && !!record.secondaryTreatmentStartTime;
+
+  const getStatusStyle = () => {
+    if (isSecondaryInProgress) return 'bg-cyan-50 border-cyan-200';
+    if (isInProgress) return 'bg-yellow-50 border-yellow-200';
+    if (isAwaitingSecondary) return 'bg-amber-50 border-amber-200';
+    return 'bg-gray-50 border-gray-200';
+  };
+
+  const getIconStyle = () => {
+    if (isSecondaryInProgress) return 'bg-cyan-200';
+    if (isInProgress) return 'bg-yellow-200';
+    if (isAwaitingSecondary) return 'bg-amber-200';
+    return 'bg-green-200';
+  };
+
+  const getStatusLabel = () => {
+    if (isSecondaryInProgress) return '二次处理进行中';
+    if (isInProgress) return '消毒进行中';
+    if (isAwaitingSecondary) return '待二次处理';
+    if (isSecondaryCompleted) return '二次处理完成';
+    return '已完成';
+  };
 
   return (
     <div className={cn(
       'p-3 rounded-lg border',
-      isInProgress ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'
+      getStatusStyle()
     )}>
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-2">
           <div className={cn(
             'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0',
-            isInProgress ? 'bg-yellow-200' : 'bg-green-200'
+            getIconStyle()
           )}>
-            {isInProgress ? (
+            {isSecondaryInProgress ? (
+              <RefreshCw className="w-4 h-4 text-cyan-700" />
+            ) : isInProgress ? (
               <Clock className="w-4 h-4 text-yellow-700" />
+            ) : isAwaitingSecondary ? (
+              <AlertTriangle className="w-4 h-4 text-amber-700" />
             ) : (
               <CheckCircle className="w-4 h-4 text-green-700" />
             )}
           </div>
-          <div>
-            <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium text-gray-800">{room?.name}</span>
               <span className="text-sm text-gray-500">· {record.nurseName}</span>
+              <span className={cn(
+                'text-xs px-2 py-0.5 rounded-full',
+                isSecondaryInProgress ? 'bg-cyan-200 text-cyan-800' :
+                isInProgress ? 'bg-yellow-200 text-yellow-800' :
+                isAwaitingSecondary ? 'bg-amber-200 text-amber-800' :
+                'bg-green-200 text-green-800'
+              )}>
+                {getStatusLabel()}
+              </span>
             </div>
             <div className="flex flex-wrap gap-1 mt-1">
               {record.items.map(item => (
@@ -289,30 +387,67 @@ function DisinfectionCard({
                 </span>
               ))}
             </div>
-            <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+            <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 flex-wrap">
               <span>器械包：{record.instrumentPackageName}</span>
               <span>开始：{formatTime(record.startTime)}</span>
               {record.endTime && <span>结束：{formatTime(record.endTime)}</span>}
               <span className="font-medium">用时 {duration} 分钟</span>
             </div>
-            {record.needsSecondaryTreatment && (
+            {isSecondaryCompleted && record.secondaryTreatmentStartTime && (
+              <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                <span>二次处理：{formatTime(record.secondaryTreatmentStartTime)} - {formatTime(record.secondaryTreatmentEndTime)}</span>
+                <span className="font-medium">用时 {secondaryDuration} 分钟</span>
+                {record.secondaryTreatmentNurseName && <span>护士：{record.secondaryTreatmentNurseName}</span>}
+              </div>
+            )}
+            {record.needsSecondaryTreatment && !isSecondaryCompleted && (
               <div className="flex items-center gap-1 mt-1 text-xs text-orange-600">
                 <AlertTriangle className="w-3 h-3" />
-                需要二次处理
+                {isAwaitingSecondary ? '等待二次消毒处理' : '需要二次处理'}
+              </div>
+            )}
+            {record.notes && (
+              <div className="text-xs text-gray-500 mt-1">
+                备注：{record.notes}
+              </div>
+            )}
+            {record.secondaryTreatmentNotes && (
+              <div className="text-xs text-gray-500 mt-1">
+                二次处理备注：{record.secondaryTreatmentNotes}
               </div>
             )}
           </div>
         </div>
 
-        {isInProgress && onComplete && (
-          <button
-            onClick={onComplete}
-            className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            <CheckCircle className="w-4 h-4" />
-            完成
-          </button>
-        )}
+        <div className="flex flex-col gap-2">
+          {isInProgress && !isSecondaryInProgress && onComplete && (
+            <button
+              onClick={onComplete}
+              className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+            >
+              <CheckCircle className="w-4 h-4" />
+              完成
+            </button>
+          )}
+          {isAwaitingSecondary && onStartSecondary && (
+            <button
+              onClick={onStartSecondary}
+              className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+            >
+              <RefreshCw className="w-4 h-4" />
+              开始二次处理
+            </button>
+          )}
+          {isSecondaryInProgress && onCompleteSecondary && (
+            <button
+              onClick={onCompleteSecondary}
+              className="flex items-center gap-1 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+            >
+              <CheckCircle className="w-4 h-4" />
+              完成二次处理
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

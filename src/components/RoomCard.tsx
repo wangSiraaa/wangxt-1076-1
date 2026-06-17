@@ -18,6 +18,7 @@ const statusConfig = {
   cleaning: { label: '清洁消毒中', color: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: Clock },
   maintenance: { label: '维护中', color: 'bg-orange-100 text-orange-800 border-orange-200', icon: Wrench },
   paused: { label: '已暂停', color: 'bg-red-100 text-red-800 border-red-200', icon: Pause },
+  'awaiting-secondary-treatment': { label: '待二次处理', color: 'bg-amber-100 text-amber-800 border-amber-200', icon: AlertTriangle },
 };
 
 const formatTime = (date?: Date) => {
@@ -53,7 +54,11 @@ export default function RoomCard({
   const treatmentRemaining = getRemainingMinutes(room.estimatedEndTime, currentTime);
   const cleaningElapsed = getElapsedMinutes(room.cleaningStartTime, currentTime);
   const cleaningRemaining = getRemainingMinutes(room.estimatedCleaningEndTime, currentTime);
-  const isCleaningOverdue = room.status === 'cleaning' && room.estimatedCleaningEndTime && currentTime > room.estimatedCleaningEndTime;
+  const secondaryTreatmentRemaining = getRemainingMinutes(room.estimatedSecondaryTreatmentEndTime, currentTime);
+  const isCleaningOverdue = (room.status === 'cleaning' || room.status === 'awaiting-secondary-treatment') && 
+    room.estimatedCleaningEndTime && currentTime > room.estimatedCleaningEndTime;
+  const isSecondaryOverdue = room.status === 'awaiting-secondary-treatment' && 
+    room.estimatedSecondaryTreatmentEndTime && currentTime > room.estimatedSecondaryTreatmentEndTime;
 
   const handlePause = () => {
     const reason = prompt('请输入暂停原因：');
@@ -211,6 +216,42 @@ export default function RoomCard({
           </div>
         )}
 
+        {room.status === 'awaiting-secondary-treatment' && (
+          <div className="space-y-2 mb-4">
+            <div className="bg-white/50 rounded-lg p-2">
+              <div className="flex items-center gap-2 mb-1">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <span className="text-sm font-medium">等待二次消毒处理</span>
+              </div>
+              <div className="flex items-center justify-between text-xs opacity-80">
+                <span>首次消毒完成：{formatTime(room.secondaryTreatmentStartTime)}</span>
+                <span>预计完成：{formatTime(room.estimatedSecondaryTreatmentEndTime)}</span>
+              </div>
+            </div>
+            <div className="bg-white/50 rounded-lg p-2">
+              <div className="flex items-center justify-between text-sm mb-1">
+                <span className="font-medium">二次处理倒计时</span>
+                <span className={cn(
+                  'font-bold',
+                  isSecondaryOverdue ? 'text-red-600' : 'text-amber-700'
+                )}>
+                  {isSecondaryOverdue ? `已超时 ${Math.abs(secondaryTreatmentRemaining)} 分钟` : `${secondaryTreatmentRemaining} 分钟`}
+                </span>
+              </div>
+              <div className="w-full bg-amber-200 rounded-full h-2">
+                <div
+                  className={cn('h-2 rounded-full transition-all', isSecondaryOverdue ? 'bg-red-600' : 'bg-amber-600')}
+                  style={{ width: `${Math.min(100, ((room.timeoutThreshold - secondaryTreatmentRemaining) / room.timeoutThreshold) * 100)}%` }}
+                />
+              </div>
+            </div>
+            <div className="text-sm text-amber-700 bg-amber-50 rounded-lg p-2 flex items-center gap-1">
+              <AlertTriangle className="w-4 h-4" />
+              二次消毒处理完成前不能接诊
+            </div>
+          </div>
+        )}
+
         {room.status === 'available' && (
           <div className="space-y-2 mb-4">
             <div className="bg-white/50 rounded-lg p-2">
@@ -278,6 +319,12 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
     'maintenance-end': Wrench,
     'pause': Pause,
     'resume': Play,
+    'secondary-treatment-start': Clock,
+    'secondary-treatment-complete': CheckCircle,
+    'package-bound': CheckCircle,
+    'package-unbound': X,
+    'batch-qualified': CheckCircle,
+    'batch-unqualified': AlertTriangle,
   };
 
   const colorMap: Record<TimelineEvent['eventType'], string> = {
@@ -289,6 +336,12 @@ function TimelineItem({ event }: { event: TimelineEvent }) {
     'maintenance-end': 'text-orange-600 bg-orange-100',
     'pause': 'text-red-600 bg-red-100',
     'resume': 'text-green-600 bg-green-100',
+    'secondary-treatment-start': 'text-amber-600 bg-amber-100',
+    'secondary-treatment-complete': 'text-green-600 bg-green-100',
+    'package-bound': 'text-green-600 bg-green-100',
+    'package-unbound': 'text-gray-600 bg-gray-100',
+    'batch-qualified': 'text-green-600 bg-green-100',
+    'batch-unqualified': 'text-red-600 bg-red-100',
   };
 
   const Icon = iconMap[event.eventType] || Clock;

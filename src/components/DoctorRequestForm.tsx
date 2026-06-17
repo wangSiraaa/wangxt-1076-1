@@ -93,6 +93,7 @@ export default function DoctorRequestForm() {
                   room.status === 'available' ? '空闲' :
                   room.status === 'occupied' ? '使用中' :
                   room.status === 'cleaning' ? '清洁中' :
+                  room.status === 'awaiting-secondary-treatment' ? '待二次处理' :
                   room.status === 'paused' ? '已暂停' : '维护中'
                 }
               </option>

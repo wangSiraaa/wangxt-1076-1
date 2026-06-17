@@ -3,7 +3,7 @@ import { AlertTriangle, Thermometer, Home, Users, CheckCircle, Clock, Package, X
 import { useClinicStore } from '@/store/clinicStore';
 import { cn } from '@/lib/utils';
 import BatchStatusBadge from './BatchStatusBadge';
-import type { BatchTraceResult } from '@/types';
+import type { BatchTraceResult, SterilizationBatch } from '@/types';
 
 const formatDateTime = (date?: Date) => {
   if (!date) return '--';
@@ -156,7 +156,6 @@ export default function BatchTraceCenter() {
               ))}
             </div>
           )}
-        )}
       </div>
 
       {showDetail && selectedTrace && getSelectedTraceData() && (
@@ -185,7 +184,7 @@ function TraceCard({
   onResumeRoom,
 }: {
   trace: BatchTraceResult;
-  batch?: ReturnType<typeof useClinicStore>['sterilizationBatches'][number];
+  batch?: SterilizationBatch;
   isSelected: boolean;
   onClick: () => void;
   onResolve: () => void;
@@ -312,7 +311,7 @@ function TraceCard({
             标记已解决
           </button>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -324,7 +323,7 @@ function TraceDetail({
   onResumeRoom,
 }: {
   trace: BatchTraceResult;
-  batch?: ReturnType<typeof useClinicStore>['sterilizationBatches'][number];
+  batch?: SterilizationBatch;
   onClose: () => void;
   onResumeRoom: (roomId: string, roomName: string) => void;
 }) {
@@ -379,8 +378,9 @@ function TraceDetail({
                         </div>
                         {room.currentPatientName && (
                           <div className="text-sm text-gray-600 mt-1">
-                          当前患者：{room.currentPatientName}
-                        </div>
+                            当前患者：{room.currentPatientName}
+                          </div>
+                        )}
                       </div>
                       {room.status === 'paused' && (
                         <button
@@ -436,13 +436,14 @@ function TraceDetail({
           )}
         </div>
       </div>
+      </div>
 
       <div className="mt-4 pt-4 border-t border-gray-200">
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-        <div className="text-gray-500">批次号：</div>
-        <span className="font-mono font-medium">{trace.batchNumber}</span>
-      </div>
+            <div className="text-gray-500">批次号：</div>
+            <span className="font-mono font-medium">{trace.batchNumber}</span>
+          </div>
           <div>
             <div className="text-gray-500">不合格原因：</div>
             <span className="text-red-600">{batch?.unqualifiedReason || '--'}</span>
@@ -456,12 +457,10 @@ function TraceDetail({
             <span>{trace.operatorName}</span>
           </div>
           {trace.resolvedAt && (
-            <>
             <div>
               <div className="text-gray-500">解决时间：</div>
               <span className="text-green-600">{formatDateTime(trace.resolvedAt)}</span>
             </div>
-          </>
           )}
         </div>
       </div>

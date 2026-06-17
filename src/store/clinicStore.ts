@@ -16,6 +16,7 @@ import type {
   EmergencyInsertRequest,
   EquipmentRequirement,
   TimelineEventType,
+  DisinfectionRecordStatus,
 } from '@/types';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -48,7 +49,9 @@ const initialRooms: Room[] = [
   {
     id: 'room-3',
     name: '诊室3',
-    status: 'available',
+    status: 'awaiting-secondary-treatment',
+    secondaryTreatmentStartTime: subtractMinutes(now, 5),
+    estimatedSecondaryTreatmentEndTime: addMinutes(now, 10),
     timeoutThreshold: 15,
   },
   {
@@ -121,6 +124,20 @@ const initialDisinfectionRecords: DisinfectionRecord[] = [
     needsSecondaryTreatment: false,
     startTime: subtractMinutes(now, 8),
     status: 'in-progress',
+  },
+  {
+    id: 'disinfection-2',
+    roomId: 'room-3',
+    nurseId: 'nurse-2',
+    nurseName: '王护士',
+    items: ['surface', 'equipment', 'air', 'waterline', 'tray'],
+    instrumentPackageId: 'package-3',
+    instrumentPackageName: '外科手术包',
+    needsSecondaryTreatment: true,
+    startTime: subtractMinutes(now, 20),
+    endTime: subtractMinutes(now, 5),
+    status: 'awaiting-secondary',
+    notes: '进行了全面消毒，因有特殊感染风险需要二次处理',
   },
 ];
 
@@ -250,6 +267,38 @@ const initialTimeline: TimelineEvent[] = [
     batchNumber: 'DIS-2024-002',
     packageId: 'package-3',
     packageName: '基础治疗包C',
+  },
+  {
+    id: 'tl-8',
+    roomId: 'room-3',
+    eventType: 'patient-enter',
+    timestamp: subtractMinutes(now, 60),
+    description: '患者赵六进入诊室',
+    operatorName: '前台小王',
+  },
+  {
+    id: 'tl-9',
+    roomId: 'room-3',
+    eventType: 'patient-exit',
+    timestamp: subtractMinutes(now, 25),
+    description: '患者治疗结束离开，因特殊感染需二次消毒',
+    operatorName: '王医生',
+  },
+  {
+    id: 'tl-10',
+    roomId: 'room-3',
+    eventType: 'cleaning-start',
+    timestamp: subtractMinutes(now, 20),
+    description: '王护士开始消毒清洁',
+    operatorName: '王护士',
+  },
+  {
+    id: 'tl-11',
+    roomId: 'room-3',
+    eventType: 'cleaning-complete',
+    timestamp: subtractMinutes(now, 5),
+    description: '首次消毒完成，需二次处理，暂不接诊',
+    operatorName: '王护士',
   },
 ];
 
@@ -475,12 +524,16 @@ export const useClinicStore = create<ClinicStore>((set, get) => ({
     if (room.status === 'cleaning') return { canAccept: false, reason: '诊室正在清洁消毒中' };
     if (room.status === 'maintenance') return { canAccept: false, reason: '诊室正在维护中' };
     if (room.status === 'paused') return { canAccept: false, reason: '诊室已暂停使用' };
+    if (room.status === 'awaiting-secondary-treatment') return { canAccept: false, reason: '等待二次消毒处理，不能进入下一位患者' };
 
     const lastDisinfection = disinfectionRecords
       .filter(d => d.roomId === roomId)
       .sort((a, b) => b.startTime.getTime() - a.startTime.getTime())[0];
 
-    if (!lastDisinfection || lastDisinfection.status !== 'completed') {
+    if (!lastDisinfection || (lastDisinfection.status !== 'completed' && lastDisinfection.status !== 'secondary-completed')) {
+      if (lastDisinfection?.status === 'awaiting-secondary') {
+        return { canAccept: false, reason: '需二次消毒处理，不能进入下一位患者' };
+      }
       return { canAccept: false, reason: '消毒未完成，不能进入下一位患者' };
     }
 
@@ -782,18 +835,31 @@ export const useClinicStore = create<ClinicStore>((set, get) => ({
     if (!record) return;
 
     const now = state.currentTime;
+    const needsSecondary = record.needsSecondaryTreatment;
+    const newStatus: DisinfectionRecordStatus = needsSecondary ? 'awaiting-secondary' : 'completed';
 
     set({
       disinfectionRecords: state.disinfectionRecords.map(r =>
         r.id === recordId
-          ? { ...r, status: 'completed', endTime: now, notes }
+          ? { 
+              ...r, 
+              status: newStatus, 
+              endTime: now, 
+              notes,
+              secondaryTreatmentStartTime: needsSecondary ? now : undefined
+            }
           : r
       ),
       rooms: state.rooms.map(r =>
-        r.id === record.roomId && record.needsSecondaryTreatment
-          ? { ...r, status: 'available' }
-          : r.id === record.roomId
-          ? { ...r, status: 'available', cleaningStartTime: undefined, estimatedCleaningEndTime: undefined }
+        r.id === record.roomId
+          ? { 
+              ...r, 
+              status: needsSecondary ? 'awaiting-secondary-treatment' : 'available',
+              cleaningStartTime: needsSecondary ? r.cleaningStartTime : undefined,
+              estimatedCleaningEndTime: needsSecondary ? r.estimatedCleaningEndTime : undefined,
+              secondaryTreatmentStartTime: needsSecondary ? now : undefined,
+              estimatedSecondaryTreatmentEndTime: needsSecondary ? addMinutes(now, r.timeoutThreshold) : undefined
+            }
           : r
       ),
       timeline: [
@@ -803,8 +869,95 @@ export const useClinicStore = create<ClinicStore>((set, get) => ({
           roomId: record.roomId,
           eventType: 'cleaning-complete' as TimelineEventType,
           timestamp: now,
-          description: `消毒清洁完成${record.needsSecondaryTreatment ? '（需二次处理）' : ''}`,
+          description: `消毒清洁完成${needsSecondary ? '（需二次处理）' : ''}`,
           operatorName: record.nurseName,
+        },
+      ],
+    });
+  },
+
+  startSecondaryTreatment: (recordId: string, nurseName: string) => {
+    const state = get();
+    const record = state.disinfectionRecords.find(r => r.id === recordId);
+    if (!record || record.status !== 'awaiting-secondary') return;
+
+    const now = state.currentTime;
+
+    set({
+      disinfectionRecords: state.disinfectionRecords.map(r =>
+        r.id === recordId
+          ? { 
+              ...r, 
+              status: 'in-progress' as DisinfectionRecordStatus,
+              secondaryTreatmentStartTime: now,
+              secondaryTreatmentNurseName: nurseName
+            }
+          : r
+      ),
+      rooms: state.rooms.map(r =>
+        r.id === record.roomId
+          ? { 
+              ...r, 
+              status: 'cleaning',
+              cleaningStartTime: now,
+              estimatedCleaningEndTime: addMinutes(now, r.timeoutThreshold),
+              secondaryTreatmentStartTime: now
+            }
+          : r
+      ),
+      timeline: [
+        ...state.timeline,
+        {
+          id: generateId(),
+          roomId: record.roomId,
+          eventType: 'secondary-treatment-start' as TimelineEventType,
+          timestamp: now,
+          description: `${nurseName}开始二次消毒处理`,
+          operatorName: nurseName,
+        },
+      ],
+    });
+  },
+
+  completeSecondaryTreatment: (recordId: string, notes?: string) => {
+    const state = get();
+    const record = state.disinfectionRecords.find(r => r.id === recordId);
+    if (!record || record.status !== 'in-progress' || !record.needsSecondaryTreatment) return;
+
+    const now = state.currentTime;
+
+    set({
+      disinfectionRecords: state.disinfectionRecords.map(r =>
+        r.id === recordId
+          ? { 
+              ...r, 
+              status: 'secondary-completed' as DisinfectionRecordStatus,
+              secondaryTreatmentEndTime: now,
+              secondaryTreatmentNotes: notes
+            }
+          : r
+      ),
+      rooms: state.rooms.map(r =>
+        r.id === record.roomId
+          ? { 
+              ...r, 
+              status: 'available',
+              cleaningStartTime: undefined,
+              estimatedCleaningEndTime: undefined,
+              secondaryTreatmentStartTime: undefined,
+              estimatedSecondaryTreatmentEndTime: undefined
+            }
+          : r
+      ),
+      timeline: [
+        ...state.timeline,
+        {
+          id: generateId(),
+          roomId: record.roomId,
+          eventType: 'secondary-treatment-complete' as TimelineEventType,
+          timestamp: now,
+          description: '二次消毒处理完成，诊室可用',
+          operatorName: record.secondaryTreatmentNurseName || record.nurseName,
         },
       ],
     });
@@ -1035,7 +1188,10 @@ export const useClinicStore = create<ClinicStore>((set, get) => ({
     const newAlerts: CleaningTimeoutAlert[] = [];
 
     state.rooms.forEach(room => {
-      if (room.status === 'cleaning' && room.cleaningStartTime && room.estimatedCleaningEndTime) {
+      const isCleaning = room.status === 'cleaning';
+      const isAwaitingSecondary = room.status === 'awaiting-secondary-treatment';
+      
+      if ((isCleaning || isAwaitingSecondary) && room.cleaningStartTime && room.estimatedCleaningEndTime) {
         const overdueMinutes = Math.floor(
           (now.getTime() - room.estimatedCleaningEndTime.getTime()) / 60000
         );
@@ -1052,6 +1208,30 @@ export const useClinicStore = create<ClinicStore>((set, get) => ({
               roomName: room.name,
               cleaningStartTime: room.cleaningStartTime,
               expectedEndTime: room.estimatedCleaningEndTime,
+              overdueMinutes,
+              acknowledged: false,
+            });
+          }
+        }
+      }
+
+      if (isAwaitingSecondary && room.estimatedSecondaryTreatmentEndTime) {
+        const overdueMinutes = Math.floor(
+          (now.getTime() - room.estimatedSecondaryTreatmentEndTime.getTime()) / 60000
+        );
+
+        if (overdueMinutes > 0) {
+          const existingAlert = state.timeoutAlerts.find(
+            a => a.roomId === room.id && !a.acknowledged
+          );
+
+          if (!existingAlert && room.cleaningStartTime) {
+            newAlerts.push({
+              id: generateId(),
+              roomId: room.id,
+              roomName: room.name,
+              cleaningStartTime: room.cleaningStartTime,
+              expectedEndTime: room.estimatedSecondaryTreatmentEndTime,
               overdueMinutes,
               acknowledged: false,
             });

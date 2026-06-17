@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Clock, User, X, CheckCircle, Wrench, Pause, Play, Package, Unlink, Thermometer, XCircle, Filter, Search, Home } from 'lucide-react';
+import { Clock, User, X, CheckCircle, Wrench, Pause, Play, Package, Unlink, Thermometer, XCircle, Filter, Search,  Home, RefreshCw } from 'lucide-react';
 import { useClinicStore } from '@/store/clinicStore';
 import { cn } from '@/lib/utils';
 import BatchStatusBadge from './BatchStatusBadge';
-import type { TimelineEvent, TimelineEventType } from '@/types';
+import type { TimelineEvent,  TimelineEventType, SterilizationBatch } from '@/types';
 
 const formatTime = (date?: Date) => {
   if (!date) return '--:--';
@@ -33,6 +33,8 @@ const eventTypeConfig: Record<TimelineEventType, {
   'package-unbound': { label: '器械解绑', color: 'text-gray-500 bg-gray-100', icon: Unlink, category: 'binding' },
   'batch-qualified': { label: '批次合格', color: 'text-teal-600 bg-teal-100', icon: Thermometer, category: 'batch' },
   'batch-unqualified': { label: '批次不合格', color: 'text-red-600 bg-red-100', icon: XCircle, category: 'batch' },
+  'secondary-treatment-start': { label: '二次处理开始', color: 'text-purple-600 bg-purple-100', icon: RefreshCw, category: 'cleaning' },
+  'secondary-treatment-complete': { label: '二次处理完成', color: 'text-green-600 bg-green-100', icon: CheckCircle, category: 'cleaning' },
 };
 
 const categoryLabels = {
@@ -237,7 +239,7 @@ function TimelineItem({
   isLast,
 }: {
   event: TimelineEvent;
-  batch?: ReturnType<typeof useClinicStore>['sterilizationBatches'][number] | null;
+  batch?: SterilizationBatch | null;
   roomName?: string;
   isLast?: boolean;
 }) {

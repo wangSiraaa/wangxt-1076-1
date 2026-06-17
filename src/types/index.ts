@@ -1,14 +1,17 @@
-export type RoomStatus = 'available' | 'occupied' | 'cleaning' | 'maintenance' | 'paused';
+export type RoomStatus = 'available' | 'occupied' | 'cleaning' | 'maintenance' | 'paused' | 'awaiting-secondary-treatment';
 
 export type PatientPriority = 'normal' | 'emergency';
 
 export type DisinfectionItem = 'surface' | 'equipment' | 'air' | 'waterline' | 'tray';
 
+export type DisinfectionRecordStatus = 'in-progress' | 'completed' | 'failed' | 'awaiting-secondary' | 'secondary-completed';
+
 export type BatchStatus = 'pending' | 'qualified' | 'unqualified' | 'expired';
 
 export type TimelineEventType = 'patient-enter' | 'patient-exit' | 'cleaning-start' | 'cleaning-complete' | 
                                 'maintenance-start' | 'maintenance-end' | 'pause' | 'resume' |
-                                'package-bound' | 'package-unbound' | 'batch-qualified' | 'batch-unqualified';
+                                'package-bound' | 'package-unbound' | 'batch-qualified' | 'batch-unqualified' |
+                                'secondary-treatment-start' | 'secondary-treatment-complete';
 
 export type EmergencyRequestStatus = 'pending' | 'approved' | 'rejected' | 'completed';
 
@@ -36,7 +39,11 @@ export interface DisinfectionRecord {
   startTime: Date;
   endTime?: Date;
   notes?: string;
-  status: 'in-progress' | 'completed' | 'failed';
+  status: DisinfectionRecordStatus;
+  secondaryTreatmentStartTime?: Date;
+  secondaryTreatmentEndTime?: Date;
+  secondaryTreatmentNurseName?: string;
+  secondaryTreatmentNotes?: string;
 }
 
 export interface InstrumentPackage {
@@ -99,6 +106,8 @@ export interface Room {
   estimatedEndTime?: Date;
   cleaningStartTime?: Date;
   estimatedCleaningEndTime?: Date;
+  secondaryTreatmentStartTime?: Date;
+  estimatedSecondaryTreatmentEndTime?: Date;
   pausedReason?: string;
   pausedAt?: Date;
   currentMaintenanceId?: string;
@@ -226,6 +235,8 @@ export interface ClinicStore {
   
   startDisinfection: (record: Omit<DisinfectionRecord, 'id' | 'startTime' | 'status'>) => void;
   completeDisinfection: (recordId: string, notes?: string) => void;
+  startSecondaryTreatment: (recordId: string, nurseName: string) => void;
+  completeSecondaryTreatment: (recordId: string, notes?: string) => void;
   
   replaceInstrumentPackage: (oldPackageId: string, newPackageId: string, operatorName: string) => void;
   
